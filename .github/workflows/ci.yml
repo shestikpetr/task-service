@@ -65,9 +65,44 @@ jobs:
       - name: Build
         run: ./gradlew bootJar
 
+  # Jobs do not share a filesystem: checkout and JDK setup are repeated here
+  integration-tests:
+    name: Integration tests
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # PostgreSQL and Redis run in Testcontainers on the runner's Docker Engine;
+      # test classes run in parallel (see integrationTest task in build.gradle)
+      - name: Integration tests (parallel)
+        run: ./gradlew integrationTest
+
+      # Shows that Testcontainers removed its containers, even when tests failed
+      - name: Containers left after tests
+        if: always()
+        run: docker ps -a
+
+      - name: Upload integration test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-report
+          path: build/reports/tests/integrationTest/
+          if-no-files-found: ignore
+
   docker:
     name: Docker image
-    needs: build
+    needs: [build, integration-tests]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -151,3 +186,71 @@ jobs:
       - name: Push image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: docker push --all-tags "$IMAGE"
+
+  # Build Once, Deploy Many: the image that passed tests and the scan is copied as is
+  promote-to-staging:
+    name: Promote to staging
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write   # permissions are per job: pushing to the staging image needs it here too
+    env:
+      SOURCE: ghcr.io/${{ github.repository }}
+      TARGET: ghcr.io/${{ github.repository }}-staging
+
+    steps:
+      - name: Compute short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      # Registry-to-registry copy of manifest and layers: no build, no Docker daemon
+      - name: Copy image to staging
+        run: skopeo copy --all "docker://$SOURCE:$SHORT_SHA" "docker://$TARGET:$SHORT_SHA"
+
+      - name: Verify staging image
+        run: |
+          source_digest=$(skopeo inspect --format '{{.Digest}}' "docker://$SOURCE:$SHORT_SHA")
+          target_digest=$(skopeo inspect --format '{{.Digest}}' "docker://$TARGET:$SHORT_SHA")
+          echo "source $SOURCE:$SHORT_SHA $source_digest"
+          echo "target $TARGET:$SHORT_SHA $target_digest"
+          test "$source_digest" = "$target_digest"
+
+  # GitOps: the pipeline only changes the desired state in Git, it never talks to the cluster
+  update-manifest:
+    name: Update staging manifest
+    needs: promote-to-staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # git push with GITHUB_TOKEN
+    env:
+      MANIFEST: k8s-manifests/staging/deployment.yaml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Compute short SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      # yq is preinstalled on GitHub-hosted Ubuntu runners
+      - name: Update image tag
+        run: |
+          yq -i ".spec.template.spec.containers[0].image = \"ghcr.io/${GITHUB_REPOSITORY}-staging:${SHORT_SHA}\"" "$MANIFEST"
+          if git diff --quiet -- "$MANIFEST"; then
+            echo "::error::$MANIFEST was not changed"
+            exit 1
+          fi
+          git diff -- "$MANIFEST"
+
+      # A push made with GITHUB_TOKEN does not trigger another workflow run, so there is no CI loop
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          git commit -m "chore(staging): deploy $SHORT_SHA to staging"
+          git push

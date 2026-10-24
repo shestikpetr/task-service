@@ -2,8 +2,8 @@ package com.shestikpetr.taskservice.task
 
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
+import org.springframework.context.annotation.Import
 import org.springframework.http.MediaType
 import org.springframework.test.annotation.DirtiesContext
 import org.springframework.test.web.servlet.MockMvc
@@ -11,8 +11,9 @@ import org.springframework.test.web.servlet.delete
 import org.springframework.test.web.servlet.get
 import org.springframework.test.web.servlet.post
 
-@SpringBootTest
-@AutoConfigureMockMvc
+// Web layer only: no DataSource or Redis is needed, those are covered by integration tests
+@WebMvcTest(TaskController::class)
+@Import(TaskService::class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class TaskControllerTest {
     @Autowired
@@ -74,13 +75,5 @@ class TaskControllerTest {
 
         mockMvc.delete("/tasks/1").andExpect { status { isNoContent() } }
         mockMvc.delete("/tasks/1").andExpect { status { isNotFound() } }
-    }
-
-    @Test
-    fun `health endpoint is up`() {
-        mockMvc.get("/actuator/health").andExpect {
-            status { isOk() }
-            jsonPath("$.status") { value("UP") }
-        }
     }
 }

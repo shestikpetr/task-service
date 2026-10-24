@@ -21,6 +21,20 @@ repositories {
     mavenCentral()
 }
 
+// Integration tests live in src/integrationTest and run only via the integrationTest task,
+// so the unit test task never needs Docker, PostgreSQL or Redis
+sourceSets {
+    integrationTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 // Versions of all resolved dependencies are pinned in gradle.lockfile.
 // Regenerate after changing dependencies: ./gradlew dependencies --write-locks
 dependencyLocking {
@@ -38,16 +52,22 @@ tasks.register('downloadDependencies') {
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     implementation 'org.jetbrains.kotlin:kotlin-reflect'
     implementation 'tools.jackson.module:jackson-module-kotlin'
+    runtimeOnly 'org.postgresql:postgresql'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
     testImplementation 'org.springframework.boot:spring-boot-starter-actuator-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-validation-test'
     testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
     testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    integrationTestImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    integrationTestImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+    integrationTestImplementation 'org.testcontainers:testcontainers-postgresql'
 }
 
 kotlin {
@@ -61,7 +81,29 @@ tasks.named('test') {
     finalizedBy 'jacocoTestReport'
 }
 
+// Test classes run concurrently (JUnit 5 parallel execution); each test starts its own containers.
+// Run sequentially for comparison: ./gradlew integrationTest -PparallelTests=false
+tasks.register('integrationTest', Test) {
+    description = 'Runs integration tests against PostgreSQL and Redis in Testcontainers.'
+    group = 'verification'
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    useJUnitPlatform()
+    shouldRunAfter 'test'
+    systemProperty 'junit.jupiter.execution.parallel.enabled', findProperty('parallelTests') ?: 'true'
+    systemProperty 'junit.jupiter.execution.parallel.mode.classes.default', 'concurrent'
+    systemProperty 'junit.jupiter.execution.parallel.mode.default', 'same_thread'
+    testLogging {
+        events 'passed', 'failed', 'skipped'
+    }
+}
+
+// Code that talks to PostgreSQL/Redis is verified by integration tests,
+// so it is excluded from the unit test coverage report and gate
+def unitCoverageExcludes = ['**/visits/**']
+
 jacocoTestReport {
+    classDirectories.setFrom(files(classDirectories.files.collect { fileTree(it) { exclude unitCoverageExcludes } }))
     reports {
         xml.required = true
         csv.required = true
@@ -71,6 +113,7 @@ jacocoTestReport {
 
 // Quality Gate: the build fails if line or branch coverage drops below 80%
 jacocoTestCoverageVerification {
+    classDirectories.setFrom(files(classDirectories.files.collect { fileTree(it) { exclude unitCoverageExcludes } }))
     violationRules {
         rule {
             limit {
