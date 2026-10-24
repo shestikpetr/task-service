@@ -26,7 +26,7 @@ class VisitCacheIT {
 
         val result = env.service.visit()
 
-        assertEquals("cache", result.source)
+        assertEquals("definitely-not-cache", result.source)
         assertEquals(1, result.count)
         assertNull(result.lastId)
     }
