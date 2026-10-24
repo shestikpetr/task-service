@@ -1,0 +1,105 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: task-service
+  namespace: staging
+  annotations:
+    # Send the on-rollout-degraded notification to the webhook service from notifications.yaml
+    notifications.argoproj.io/subscribe.on-rollout-degraded.rollout-receiver: ""
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: task-service
+  template:
+    metadata:
+      labels:
+        app: task-service
+    spec:
+      # Otherwise Kubernetes injects REDIS_PORT=tcp://... for the redis Service, clashing with the app's REDIS_PORT
+      enableServiceLinks: false
+      containers:
+        - name: task-service
+          image: localhost:5001/task-service:stable
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/tasks
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: task-service-db
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: task-service-db
+                  key: password
+            - name: REDIS_HOST
+              value: redis
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:MaxRAMPercentage=75
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 10
+  strategy:
+    canary:
+      stableService: task-service-stable
+      canaryService: task-service-canary
+      # Background analysis from step 1 (the first pause) until the end of the rollout
+      analysis:
+        templates:
+          - templateName: error-rate-check
+        startingStep: 1
+      steps:
+        - setWeight: 10
+        - pause: { duration: 1m }
+        - setWeight: 25
+        - pause: { duration: 1m }
+        - setWeight: 50
+        - pause: { duration: 1m }
+        - setWeight: 100
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task-service-stable
+  namespace: staging
+spec:
+  selector:
+    app: task-service
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: task-service-canary
+  namespace: staging
+spec:
+  selector:
+    app: task-service
+  ports:
+    - port: 80
+      targetPort: 8080
