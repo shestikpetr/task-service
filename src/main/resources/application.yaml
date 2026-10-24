@@ -12,3 +12,15 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus  # Prometheus scrapes /actuator/prometheus
+
+app:
+  version: ${APP_VERSION:dev}
+  chaos:
+    enabled: ${CHAOS_MODE:false}  # broken build: /health fails part of the requests
+    failure-rate: 0.3

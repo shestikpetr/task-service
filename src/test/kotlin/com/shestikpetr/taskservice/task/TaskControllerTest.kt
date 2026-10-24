@@ -1,5 +1,6 @@
 package com.shestikpetr.taskservice.task
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
@@ -13,7 +14,8 @@ import org.springframework.test.web.servlet.post
 
 // Web layer only: no DataSource or Redis is needed, those are covered by integration tests
 @WebMvcTest(TaskController::class)
-@Import(TaskService::class)
+// The web slice also picks up HttpRequestMetricsFilter, which needs a MeterRegistry
+@Import(TaskService::class, SimpleMeterRegistry::class)
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class TaskControllerTest {
     @Autowired
