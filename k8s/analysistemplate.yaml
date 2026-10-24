@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate-check
+  namespace: staging
+spec:
+  metrics:
+    - name: error-rate
+      interval: 30s
+      # Share of 5xx responses must stay below 1%
+      successCondition: result[0] < 0.01
+      # One failed measurement is tolerated (random spike), the second one fails the analysis
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://monitoring-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090
+          # "or vector(0)": while there are no 5xx at all, the 5xx series does not exist and the
+          # numerator would be an empty vector, making result[0] fail with "slice index out of range"
+          query: |
+            (sum(rate(http_requests_total{namespace="staging", status_code=~"5.."}[1m])) or vector(0))
+            /
+            sum(rate(http_requests_total{namespace="staging"}[1m]))

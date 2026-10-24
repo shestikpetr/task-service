@@ -1,7 +1,9 @@
 package com.shestikpetr.taskservice
 
+import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
@@ -18,6 +20,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+// Spring Boot disables metrics export in tests by default; the Prometheus endpoint is checked here
+@AutoConfigureMetrics
 @Testcontainers
 class TaskServiceApplicationIT {
     @Autowired
@@ -41,6 +45,16 @@ class TaskServiceApplicationIT {
         mockMvc.get("/actuator/health").andExpect {
             status { isOk() }
             jsonPath("$.status") { value("UP") }
+        }
+    }
+
+    @Test
+    fun `requests are exported as http_requests_total for Prometheus`() {
+        mockMvc.get("/health").andExpect { status { isOk() } }
+
+        mockMvc.get("/actuator/prometheus").andExpect {
+            status { isOk() }
+            content { string(containsString("http_requests_total{status_code=\"200\"}")) }
         }
     }
 

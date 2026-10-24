@@ -33,6 +33,14 @@ USER app
 # Only the executable jar; JDK, Gradle, sources and dev/test dependencies stay in the build stage
 COPY --from=build /app/build/libs/*.jar app.jar
 
+# Same Dockerfile for every demo build, different build arguments:
+#   --build-arg APP_VERSION=v2           trivial change for Rolling Update / Canary
+#   --build-arg CHAOS_MODE=true          deliberately broken build for the rollback demo
+ARG APP_VERSION=dev
+ARG CHAOS_MODE=false
+ENV APP_VERSION=$APP_VERSION \
+    CHAOS_MODE=$CHAOS_MODE
+
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s \
     CMD wget -qO- http://localhost:8080/actuator/health || exit 1

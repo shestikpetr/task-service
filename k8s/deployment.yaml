@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-service
+  namespace: staging
+spec:
+  replicas: 6
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1  # at most 1 of 6 pods below the desired count during the update
+      maxSurge: 2        # at most 2 pods above the desired count (8 in total)
+  selector:
+    matchLabels:
+      app: task-service
+  template:
+    metadata:
+      labels:
+        app: task-service
+    spec:
+      # Otherwise Kubernetes injects REDIS_PORT=tcp://... for the redis Service, clashing with the app's REDIS_PORT
+      enableServiceLinks: false
+      containers:
+        - name: task-service
+          image: localhost:5001/task-service:stable
+          ports:
+            - containerPort: 8080
+          env:
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/tasks
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: task-service-db
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: task-service-db
+                  key: password
+            - name: REDIS_HOST
+              value: redis
+            - name: JAVA_TOOL_OPTIONS
+              value: -XX:MaxRAMPercentage=75
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          # The JVM needs a while to start: liveness/readiness only begin after the startup probe passes
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            periodSeconds: 10
+---
+# Balances across all task-service pods; also used for the load in the canary demo
+apiVersion: v1
+kind: Service
+metadata:
+  name: task-service
+  namespace: staging
+spec:
+  selector:
+    app: task-service
+  ports:
+    - port: 80
+      targetPort: 8080

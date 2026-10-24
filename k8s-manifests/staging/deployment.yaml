@@ -15,6 +15,8 @@ spec:
       labels:
         app: task-service
     spec:
+      # Otherwise Kubernetes injects REDIS_PORT=tcp://... for the redis Service, clashing with the app's REDIS_PORT
+      enableServiceLinks: false
       containers:
         - name: task-service
           # Updated by CI (update-manifest job) after the image is promoted to staging
