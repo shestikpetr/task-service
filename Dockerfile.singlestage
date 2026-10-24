@@ -1,0 +1,13 @@
+# syntax=docker/dockerfile:1
+# Single-stage variant, kept only to compare image size with the multi-stage Dockerfile
+
+# Optional Gradle init scripts, see Dockerfile
+FROM scratch AS gradle-init
+
+FROM eclipse-temurin:21-jdk
+WORKDIR /app
+COPY . .
+RUN --mount=type=bind,from=gradle-init,target=/root/.gradle/init.d \
+    ./gradlew bootJar --no-daemon -Pkotlin.compiler.execution.strategy=in-process
+EXPOSE 8080
+CMD ["sh", "-c", "java -jar build/libs/*.jar"]
