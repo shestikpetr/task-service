@@ -19,6 +19,9 @@ class TaskController(
     @GetMapping
     fun findAll(): List<Task> = taskService.findAll()
 
+    @GetMapping("/stats")
+    fun stats(): Map<String, Any> = taskService.stats()
+
     @GetMapping("/{id}")
     fun findById(
         @PathVariable id: Long,
