@@ -14,7 +14,7 @@ class TaskService {
     fun findById(id: Long): Task? = tasks[id]
 
     fun create(title: String): Task {
-        val task = Task(id = nextId.getAndIncrement(), title = title)
+        val task = Task(id = nextId.getAndIncrement(), title = title.trim())
         tasks[task.id] = task
         return task
     }

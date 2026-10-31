@@ -28,6 +28,14 @@ dependencyLocking {
     lockMode = LockMode.STRICT
 }
 
+// Downloads every dependency artifact without compiling sources.
+// The Dockerfile runs it in a separate layer so dependencies are cached independently of the code.
+tasks.register('downloadDependencies') {
+    doLast {
+        configurations.findAll { it.canBeResolved }.each { it.resolve() }
+    }
+}
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
