@@ -3,6 +3,8 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.spring' version '2.3.21'
     id 'org.springframework.boot' version '4.1.2'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.jlleitschuh.gradle.ktlint' version '13.1.0'
+    id 'jacoco'
 }
 
 group = 'com.shestikpetr'
@@ -17,6 +19,13 @@ java {
 
 repositories {
     mavenCentral()
+}
+
+// Versions of all resolved dependencies are pinned in gradle.lockfile.
+// Regenerate after changing dependencies: ./gradlew dependencies --write-locks
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode = LockMode.STRICT
 }
 
 dependencies {
@@ -41,4 +50,33 @@ kotlin {
 
 tasks.named('test') {
     useJUnitPlatform()
+    finalizedBy 'jacocoTestReport'
+}
+
+jacocoTestReport {
+    reports {
+        xml.required = true
+        csv.required = true
+        html.required = true
+    }
+}
+
+// Quality Gate: the build fails if line or branch coverage drops below 80%
+jacocoTestCoverageVerification {
+    violationRules {
+        rule {
+            limit {
+                counter = 'LINE'
+                minimum = 0.80
+            }
+            limit {
+                counter = 'BRANCH'
+                minimum = 0.80
+            }
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'jacocoTestCoverageVerification'
 }

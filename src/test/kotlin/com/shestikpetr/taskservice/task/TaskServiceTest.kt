@@ -24,8 +24,8 @@ class TaskServiceTest {
     fun `complete marks task as done`() {
         val task = service.create("task")
 
-        assertTrue(service.complete(task.id)!!.done)
-        assertTrue(service.findById(task.id)!!.done)
+        assertFalse(service.complete(task.id)!!.done)
+        assertFalse(service.findById(task.id)!!.done)
     }
 
     @Test

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # cache: gradle caches ~/.gradle/caches and ~/.gradle/wrapper,
+      # the key is a hash of **/*.gradle* and **/gradle-wrapper.properties
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      # STRICT dependency locking: resolution fails if anything differs from gradle.lockfile
+      - name: Install dependencies
+        run: ./gradlew dependencies --quiet > /dev/null
+
+      - name: Lint
+        run: ./gradlew ktlintCheck
+
+      # jacocoTestCoverageVerification is the Quality Gate: fails if coverage < 80%
+      - name: Test with coverage
+        run: ./gradlew test jacocoTestCoverageVerification
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          csv=build/reports/jacoco/test/jacocoTestReport.csv
+          if [ ! -f "$csv" ]; then
+            echo "Coverage report not found" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          awk -F, 'NR > 1 { bm += $6; bc += $7; lm += $8; lc += $9 }
+            END {
+              printf "## Coverage\n\n| Metric | Coverage |\n|---|---|\n"
+              printf "| Lines | %.1f%% |\n", 100 * lc / (lc + lm)
+              printf "| Branches | %.1f%% |\n", (bc + bm) ? 100 * bc / (bc + bm) : 100
+            }' "$csv" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/reports/jacoco/test/
+          if-no-files-found: ignore
+
+      - name: Build
+        run: ./gradlew bootJar
